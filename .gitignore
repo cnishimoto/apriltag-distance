@@ -1,0 +1,52 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]          # .pyc / .pyo / .pyd bytecode
+*.egg-info/
+.eggs/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ---------- Virtual environments ----------
+.venv/
+venv/
+env/
+ENV/
+
+# ---------- Node / TypeScript ----------
+node_modules/
+*.tsbuildinfo      # incremental compile cache
+# dist/ and build/ already covered above (tsc output)
+npm-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ---------- Photos / images ----------
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.heic
+*.webp
+*.bmp
+*.tif
+*.tiff
+*.raw
+*.cr2
+*.nef
+*.arw
+
+# ---------- Secrets & env ----------
+.env
+.env.*
+!.env.example
+
+# ---------- OS / editor ----------
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
