@@ -33,7 +33,7 @@
   },
   "apriltag": {
     "dictionary": "DICT_APRILTAG_36h11",
-    "tag_size_m": 0.16,
+    "tag_size_m": 0.15,
     "corner_refinement": "CORNER_REFINE_SUBPIX",
     "smoothing_alpha": 0.35
   }
