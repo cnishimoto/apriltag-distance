@@ -87,7 +87,7 @@ button('save').onclick=()=>task(async()=>{
 });
 window.addEventListener('beforeunload',stop);
 navigator.mediaDevices?.enumerateDevices().then(devices=>{for(const [i,d]of devices.filter(d=>d.kind==='videoinput').entries())select.add(new Option(d.label||`Camera ${i+1}`,d.deviceId));}).catch(()=>{});
-fetch('/api/calibration').then(async r=>{if(!r.ok)throw new Error('Could not load calibration settings');settings=await r.json() as Settings;count=settings.count;showResolution();controls();}).catch(e=>{message(`${errorText(e)}. Start uv run python calibrate_camera.py, then refresh.`);element('status').dataset.tone='error';element('setup').textContent='Calibration server unavailable.';controls();});
+fetch('/api/calibration').then(async r=>{if(!r.ok)throw new Error('Could not load calibration settings');settings=await r.json() as Settings;count=settings.count;showResolution();controls();}).catch(e=>{message(`${errorText(e)}. Start the AprilTag Studio server on port 8000, then refresh.`);element('status').dataset.tone='error';element('setup').textContent='Calibration API unavailable.';controls();});
 
 imageUpload.onchange=()=>task(async()=>{
  const files=Array.from(imageUpload.files||[]);if(!files.length)return;

@@ -1,6 +1,10 @@
 """Local webcam processing service. Run: python server.py"""
 import argparse
 import asyncio
+import csv
+import math
+import uuid
+from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
@@ -9,9 +13,15 @@ import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
+from apriltag_position import estimate_position
 from calibration import validate_calibration
 
 ROOT = Path(__file__).resolve().parent
+DATA_PATH = ROOT / 'measurements' / 'position_errors.csv'
+PICTURES_DIR = ROOT / 'pictures'
+MEASUREMENT_COLUMNS = ['timestamp_utc', 'image_name', 'source', 'tag_id', 'image_width', 'image_height', 'tag_size_m', 'reference_type', 'true_distance_m', 'estimated_distance_m', 'signed_error_m', 'absolute_error_m', 'relative_error_percent', 'x_m', 'y_m', 'z_m', 'estimated_range_m', 'estimated_depth_m', 'reprojection_rms_px', 'camera_profile']
+
 
 
 def load_config(path):
@@ -120,6 +130,104 @@ def create_app(config_path=ROOT / 'apriltag_config.json'):
         except (ValueError, cv2.error) as exc:
             raise HTTPException(400, str(exc)) from exc
 
+    async def run_image_estimate(request: Request, tag_id: int | None):
+        # Alternate camera calibrations come from the selected local JSON file.
+        raw_config = request.headers.get('x-camera-config')
+        if raw_config and len(raw_config) > 12000:
+            raise HTTPException(413, 'Calibration config is too large.')
+        try:
+            profile = json.loads(raw_config) if raw_config else load_config(config_path)
+            raw = await request.body()
+            if not raw or len(raw) > 100_000_000:
+                raise ValueError('Image must be 1–16 MB.')
+            frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+            if frame is None:
+                raise ValueError('Invalid image; import PNG or JPEG.')
+            if max(frame.shape[:2]) > 12000 or frame.shape[0]*frame.shape[1] > 60_000_000:
+                raise ValueError('Image dimension exceeds 12000 pixels.')
+            result = await asyncio.to_thread(estimate_position, frame, profile, tag_id)
+            return profile, result
+        except (ValueError, TypeError, KeyError, cv2.error) as exc:
+            raise HTTPException(400, str(exc)) from exc
+
+    @app.post('/api/image-position/capture')
+    async def capture_image(request: Request):
+        """Persist one browser webcam frame to the server's local pictures/ folder."""
+        raw = await request.body()
+        if not raw or len(raw) > 100_000_000:
+            raise HTTPException(400, 'Captured frame must be 1–16 MB.')
+        frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+        if frame is None or max(frame.shape[:2]) > 12000 or frame.shape[0]*frame.shape[1] > 60_000_000:
+            raise HTTPException(400, 'Invalid or oversized captured frame.')
+        # Re-encode as PNG, rather than trusting arbitrary user-supplied bytes.
+        ok, encoded = cv2.imencode('.png', frame)
+        if not ok:
+            raise HTTPException(500, 'Unable to encode captured frame.')
+        name = (datetime.now(timezone.utc).strftime('image_%Y%m%d_%H%M%S_%f_')
+                + uuid.uuid4().hex[:8] + '.png')
+        PICTURES_DIR.mkdir(parents=True, exist_ok=True)
+        path = PICTURES_DIR / name
+        await asyncio.to_thread(path.write_bytes, encoded.tobytes())
+        return {'saved': True, 'image_name': name, 'path': 'pictures/' + name,
+                'width': frame.shape[1], 'height': frame.shape[0]}
+
+    @app.post('/api/image-position')
+    async def image_position(request: Request, tag_id: int | None = None):
+        _, result = await run_image_estimate(request, tag_id)
+        return result
+
+    save_lock = asyncio.Lock()
+
+    @app.post('/api/image-position/save')
+    async def save_measurement(request: Request, true_distance_m: float,
+                               reference_type: str = 'range', source: str = 'real',
+                               image_name: str = 'captured_image.png',
+                               tag_id: int | None = None):
+        if not math.isfinite(true_distance_m) or true_distance_m <= 0:
+            raise HTTPException(400, 'Measured ground-truth distance must be a positive finite number in meters.')
+        if reference_type not in ('range', 'depth'):
+            raise HTTPException(400, 'Reference type must be range or depth.')
+        if source not in ('real', 'simulated'):
+            raise HTTPException(400, 'Source must be real or simulated.')
+        # Do not allow control characters / spreadsheet formula injection in exported CSV.
+        image_name = Path(image_name.replace('\\', '/')).name[:180]
+        if image_name.startswith(('=', '+', '-', '@', '\t', '\r', '\n')):
+            image_name = '_' + image_name
+        if not image_name or any(ord(c) < 32 for c in image_name):
+            raise HTTPException(400, 'Invalid image filename.')
+        profile, result = await run_image_estimate(request, tag_id)
+        estimate = result['distance_m'] if reference_type == 'range' else result['z_m']
+        error = estimate - true_distance_m
+        record = dict(timestamp_utc=datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
+                      image_name=image_name, source=source, tag_id=result['id'],
+                      image_width=result['image_width'], image_height=result['image_height'],
+                      tag_size_m=profile['apriltag']['tag_size_m'],
+                      reference_type=reference_type, true_distance_m=true_distance_m,
+                      estimated_distance_m=estimate, signed_error_m=error,
+                      absolute_error_m=abs(error), relative_error_percent=100*error/true_distance_m,
+                      x_m=result['x_m'], y_m=result['y_m'], z_m=result['z_m'],
+                      estimated_range_m=result['distance_m'], estimated_depth_m=result['z_m'],
+                      reprojection_rms_px=result['reprojection_rms_px'],
+                      camera_profile='uploaded' if request.headers.get('x-camera-config') else 'default')
+        async with save_lock:
+            DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
+            if DATA_PATH.exists():
+                with DATA_PATH.open('r', newline='', encoding='utf-8') as file:
+                    if next(csv.reader(file), []) != MEASUREMENT_COLUMNS:
+                        raise HTTPException(409, 'CSV column layout differs from expected format; rename or move the existing file before saving.')
+            with DATA_PATH.open('a', newline='', encoding='utf-8') as file:
+                writer = csv.DictWriter(file, fieldnames=MEASUREMENT_COLUMNS)
+                if file.tell() == 0:
+                    writer.writeheader()
+                writer.writerow(record)
+        return {'saved': True, 'csv': 'measurements/position_errors.csv', 'measurement': record}
+
+    @app.get('/api/image-position/measurements.csv')
+    async def download_measurements():
+        if not DATA_PATH.exists():
+            raise HTTPException(404, 'No measurements saved yet.')
+        return FileResponse(DATA_PATH, media_type='text/csv', filename='position_errors.csv')
+
     @app.websocket('/ws')
     async def frames(ws: WebSocket):
         # Same-origin production, plus the local Vite development server.
@@ -141,6 +249,23 @@ def create_app(config_path=ROOT / 'apriltag_config.json'):
                     await ws.send_json({'error': str(exc)})
         except WebSocketDisconnect:
             pass
+
+    # Reuse update-1's existing calibration handlers in the main app, on port 8000.
+    # Only register API routes: the standalone calibration app's '/' static mount
+    # must not shadow the AprilTag Studio homepage.
+    from calibrate_camera import create_app as create_calibration_app
+    calibration_app = create_calibration_app(
+        Path(config_path).resolve(), ROOT / 'calibration_runs')
+    for route in calibration_app.router.routes:
+        if getattr(route, 'path', '').startswith('/api/calibration'):
+            app.router.routes.append(route)
+
+    @app.get('/calibration')
+    async def calibration_page():
+        page = ROOT / 'frontend' / 'dist' / 'calibration.html'
+        if not page.exists():
+            raise HTTPException(404, 'Run npm run build in frontend first.')
+        return FileResponse(page)
 
     dist = ROOT / 'frontend' / 'dist'
     if dist.exists():

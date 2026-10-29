@@ -154,7 +154,8 @@ def create_app(config_path, output_root, columns=9, rows=6, square_mm=20):
                 raise HTTPException(404, 'Unknown action')
             except (ValueError, cv2.error) as exc:
                 raise HTTPException(400, str(exc)) from exc
-    app.mount('/', StaticFiles(directory=ROOT/'frontend/dist'), name='assets')
+    if (ROOT/'frontend/dist').exists():
+        app.mount('/', StaticFiles(directory=ROOT/'frontend/dist'), name='assets')
     return app
 
 
