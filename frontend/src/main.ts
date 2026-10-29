@@ -1,3 +1,4 @@
+import { loadImage, png, copyCanvas, downloadArchive } from './image-files';
 import './style.css';
 import { ResolutionControl, videoConstraints, captureError } from './camera-settings';
 import type { AppConfig, DetectorResponse, FrameResult } from './types';
@@ -31,6 +32,12 @@ let timer: ReturnType<typeof setTimeout> | undefined;
 let watchdog: ReturnType<typeof setTimeout> | undefined;
 let generation = 0, running = false;
 let lastResult: FrameResult | null = null;
+const imageUpload = document.getElementById('imageUpload') as HTMLInputElement;
+const saveFrame = document.getElementById('saveFrame') as HTMLButtonElement;
+let originalFile: File | null = null;
+let frameSource: Record<string, unknown> = {};
+let capturedAt = '';
+let logFrame: { raw: HTMLCanvasElement; metadata: Record<string, unknown>; original: File | null } | null = null;
 let lastCompleted = 0, fps = 0, sentAt = 0, lastMediaTime = -1;
 const status = (text: string, tone = 'info'): void => {
   // Avoid announcing an identical per-frame status repeatedly to screen readers.
@@ -60,10 +67,10 @@ function clearMetrics() {
   $('processing').textContent = '— ms'; $('error').textContent = '— px';
   $('tagcount').textContent = '0 TAGS';
   $('selected').replaceChildren(new Option('No tags detected', ''));
-  lastResult = null;
+  lastResult = null; logFrame = null; saveFrame.disabled = true;
 }
 function stop(message = 'Session stopped. Camera released.') {
-  generation++; running = false;
+  generation++; running = false; imageUpload.disabled = false;
   clearTimeout(timer); clearTimeout(watchdog);
   if (socket) { socket.onclose = null; socket.close(); socket = null; }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -90,6 +97,14 @@ function updateMeasurement() {
   $('error').textContent = tag?.reprojection_error_px != null ? `${tag.reprojection_error_px.toFixed(2)} px` : '— px';
 }
 function render(result: FrameResult): void {
+  logFrame = {raw: copyCanvas(capture), original: originalFile, metadata: {
+    schema_version: 1, captured_at_utc: capturedAt, processed_at_utc: new Date().toISOString(),
+    timestamp_note: 'Browser capture/import time, not camera shutter time.',
+    source: frameSource, config, result, units: {distance:'meters', corners:'pixels'},
+    smoothing: originalFile ? 'Independent image; distance equals raw distance.' : 'Exponential temporal smoothing; raw distance also included.',
+    analysis_fps: originalFile ? null : fps, orientation: 'Browser-decoded orientation; no resizing or cropping.'
+  }};
+  saveFrame.disabled = false;
   const previous = $('selected').value;
   const ids = [...new Set(result.tags.map(t => t.id))];
   $('selected').replaceChildren(...(ids.length ? ids.map(id => new Option(`Tag ${id}`, String(id))) : [new Option('No tags detected', '')]));
@@ -122,6 +137,9 @@ async function sendFrame(token: number): Promise<void> {
     timer = setTimeout(() => sendFrame(token), 10); return;
   }
   lastMediaTime = video.currentTime;
+  originalFile = null; capturedAt = new Date().toISOString();
+  const track = stream?.getVideoTracks()[0];
+  frameSource = {kind:'camera', label:track?.label, settings:track?.getSettings()};
   capture.width = video.videoWidth; capture.height = video.videoHeight;
   captureCtx.drawImage(video, 0, 0);
   sentAt = performance.now();
@@ -136,7 +154,7 @@ async function sendFrame(token: number): Promise<void> {
 }
 async function start() {
   if (!config || running) return;
-  const token = ++generation; running = true;
+  const token = ++generation; running = true; imageUpload.disabled = true;
   $('start').disabled = true; $('stop').disabled = false; $('camera').disabled = true;
   resolutionControl.disable(true);
   $('connection').textContent = 'Connecting'; $('connection').dataset.state = 'connecting';
@@ -160,7 +178,7 @@ async function start() {
       if (token !== generation) return;
       clearTimeout(watchdog); lastCompleted = 0; fps = 0; lastMediaTime = -1;
       $('connection').textContent = '● Live'; $('connection').dataset.state = 'live';
-      resolutionControl.disable(false); $('camera').disabled = false; sendFrame(token);
+      resolutionControl.disable(false); $('camera').disabled = false; imageUpload.disabled = false; sendFrame(token);
     };
     socket.onmessage = event => {
       if (token !== generation) return;
@@ -206,3 +224,31 @@ async function init() {
   } catch (error) { config = null; calibrationStatus(); status(`Local detector unavailable: ${errorMessage(error)}. Start uv run python apriltag_distance.py, then refresh.`, 'error'); $('connection').textContent = 'Server offline'; $('connection').dataset.state = 'error'; }
 }
 init();
+
+imageUpload.onchange = async () => {
+  const file=imageUpload.files?.[0]; if(!file)return;
+  stop('Loading image…'); const token=generation; imageUpload.disabled=true; $('start').disabled=true;
+  try {
+    const image=await loadImage(file); const blob=await png(image);
+    const response=await fetch('/api/image',{method:'POST',body:blob});
+    const result=await response.json(); if(!response.ok)throw new Error(result.detail || 'Image processing failed');
+    if(token!==generation)return;
+    capture.width=image.width;capture.height=image.height;captureCtx.drawImage(image,0,0);
+    originalFile=file;capturedAt=new Date().toISOString();
+    frameSource={kind:'uploaded_image',filename:file.name,bytes:file.size,last_modified_utc:new Date(file.lastModified).toISOString()};
+    fps=0; render(result as FrameResult);$('connection').textContent='Image';
+  }catch(e){if(token===generation)status(captureError(e),'error');}
+  finally{if(token===generation){imageUpload.disabled=false;$('start').disabled=!config;}imageUpload.value='';}
+};
+saveFrame.onclick = async () => {
+  if(!logFrame)return;
+  // Snapshot both visuals and metadata synchronously before the live loop advances.
+  const log=logFrame, annotated=copyCanvas(display), selected=$('selected').value;
+  saveFrame.disabled=true;
+  try{
+    const files=[{name:'annotated.png',blob:await png(annotated)}, {name:'frame.png',blob:await png(log.raw)},
+      {name:'metadata.json',blob:new Blob([JSON.stringify({...log.metadata,selected_tag_id:selected?Number(selected):null,exported_at_utc:new Date().toISOString()},null,2)],{type:'application/json'})}];
+    if(log.original)files.push({name:'source/'+log.original.name.replace(/[^a-zA-Z0-9._-]/g,'_'),blob:log.original});
+    await downloadArchive(files,`apriltag-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`);
+  }catch(e){status(captureError(e),'error');}finally{saveFrame.disabled=!logFrame;}
+};

@@ -7,7 +7,7 @@ import time
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
 from calibration import validate_calibration
 
@@ -18,8 +18,8 @@ def load_config(path):
     config = json.loads(Path(path).read_text(encoding='utf-8'))
     camera, tag = config['camera'], config['apriltag']
     for key in ('width', 'height'):
-        if type(camera[key]) is not int or not 1 <= camera[key] <= 4096:
-            raise ValueError(f'camera.{key} must be an integer from 1 to 4096')
+        if type(camera[key]) is not int or not 1 <= camera[key] <= 12000:
+            raise ValueError(f'camera.{key} must be an integer from 1 to 12000')
     size, alpha = float(tag['tag_size_m']), float(tag['smoothing_alpha'])
     if not np.isfinite(size) or size <= 0 or not 0 < alpha <= 1:
         raise ValueError('Tag size must be positive; smoothing alpha must be in (0, 1].')
@@ -49,16 +49,16 @@ class Processor:
         self.dist = np.array(self.camera['dist'], dtype=np.float64) if self.calibrated else None
         self.filtered = {}
 
-    def process(self, data):
+    def process(self, data, photo=False):
         start = time.perf_counter()
-        if len(data) > 8_000_000:
-            raise ValueError('Frame exceeds 8 MB limit.')
+        if not data or len(data) > (100_000_000 if photo else 8_000_000):
+            raise ValueError('Image is empty or exceeds the input size limit.')
         frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError('Frame is not a valid encoded image.')
         height, width = frame.shape[:2]
-        if max(width, height) > 4096:
-            raise ValueError('Frame dimensions exceed 4096 pixels.')
+        if max(width, height) > (12000 if photo else 4096) or width*height > 60_000_000:
+            raise ValueError('Image exceeds the supported dimensions (live: 4096; photos: 12000 pixels / 60 MP).')
         can_measure = self.calibrated and (width, height) == (self.camera['calibration_width'], self.camera['calibration_height'])
         warning = None
         if not self.calibrated:
@@ -105,7 +105,20 @@ def create_app(config_path=ROOT / 'apriltag_config.json'):
         c, t = config['camera'], config['apriltag']
         return dict(width=c['width'], height=c['height'], tag=t,
                     calibrated=c['K'] is not None and c['dist'] is not None,
-                    calibration_width=c['calibration_width'], calibration_height=c['calibration_height'])
+                    calibration_width=c['calibration_width'], calibration_height=c['calibration_height'], calibration={'K':c['K'], 'dist':c['dist']})
+
+    @app.post('/api/image')
+    async def image(request: Request):
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > 100_000_000:
+                raise HTTPException(413, 'Image exceeds 100 MB.')
+        try:
+            # Independent stills must never inherit temporal smoothing history.
+            return await asyncio.to_thread(Processor(config).process, bytes(data), True)
+        except (ValueError, cv2.error) as exc:
+            raise HTTPException(400, str(exc)) from exc
 
     @app.websocket('/ws')
     async def frames(ws: WebSocket):

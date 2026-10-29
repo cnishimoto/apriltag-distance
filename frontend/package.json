@@ -7,7 +7,7 @@
     "dev": "vite --host 127.0.0.1",
     "build": "npm run typecheck && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsc src/camera-settings.ts --target ES2022 --module ESNext --lib ES2022,DOM --outDir .testbuild --skipLibCheck && node --test tests/*.test.mjs"
+    "test": "tsc src/camera-settings.ts src/image-files.ts --target ES2022 --module ESNext --lib ES2022,DOM --outDir .testbuild --skipLibCheck && node --test tests/*.test.mjs"
   },
   "devDependencies": {
     "typescript": "^5.9.3",
