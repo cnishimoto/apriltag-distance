@@ -1,3 +1,5 @@
+import { newRecordId } from './trial-statistics';
+import { MeasurementLogging } from './measurement-logging';
 import { loadImage, png, copyCanvas, downloadArchive } from './image-files';
 import './style.css';
 import { ResolutionControl, videoConstraints, captureError } from './camera-settings';
@@ -33,11 +35,14 @@ let watchdog: ReturnType<typeof setTimeout> | undefined;
 let generation = 0, running = false;
 let lastResult: FrameResult | null = null;
 const imageUpload = document.getElementById('imageUpload') as HTMLInputElement;
+imageUpload.disabled = true;
 const saveFrame = document.getElementById('saveFrame') as HTMLButtonElement;
 let originalFile: File | null = null;
 let frameSource: Record<string, unknown> = {};
 let capturedAt = '';
-let logFrame: { raw: HTMLCanvasElement; metadata: Record<string, unknown>; original: File | null } | null = null;
+let logFrame: { frameId: string; result: FrameResult; raw: HTMLCanvasElement; metadata: Record<string, unknown>; original: File | null } | null = null;
+const logging = new MeasurementLogging();
+let exporting = false;
 let lastCompleted = 0, fps = 0, sentAt = 0, lastMediaTime = -1;
 const status = (text: string, tone = 'info'): void => {
   // Avoid announcing an identical per-frame status repeatedly to screen readers.
@@ -67,10 +72,10 @@ function clearMetrics() {
   $('processing').textContent = '— ms'; $('error').textContent = '— px';
   $('tagcount').textContent = '0 TAGS';
   $('selected').replaceChildren(new Option('No tags detected', ''));
-  lastResult = null; logFrame = null; saveFrame.disabled = true;
+  lastResult = null; logFrame = null; saveFrame.disabled = true; logging.clear();
 }
 function stop(message = 'Session stopped. Camera released.') {
-  generation++; running = false; imageUpload.disabled = false;
+  generation++; running = false; imageUpload.disabled = !config;
   clearTimeout(timer); clearTimeout(watchdog);
   if (socket) { socket.onclose = null; socket.close(); socket = null; }
   if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
@@ -95,16 +100,18 @@ function updateMeasurement() {
   $('distance').innerHTML = tag?.distance_m != null ? `${tag.distance_m.toFixed(3)}<small> m</small>` : '—<small> m</small>';
   $('depth').textContent = tag?.depth_m != null ? `${tag.depth_m.toFixed(3)} m` : '— m';
   $('error').textContent = tag?.reprojection_error_px != null ? `${tag.reprojection_error_px.toFixed(2)} px` : '— px';
+  if (logFrame) logging.observe(logFrame.frameId, logFrame.result, $('selected').value, logFrame.metadata);
 }
 function render(result: FrameResult): void {
-  logFrame = {raw: copyCanvas(capture), original: originalFile, metadata: {
+  const {log_token: _logToken, ...exportConfig} = config!;
+  logFrame = {frameId: newRecordId(), result, raw: copyCanvas(capture), original: originalFile, metadata: {
     schema_version: 1, captured_at_utc: capturedAt, processed_at_utc: new Date().toISOString(),
     timestamp_note: 'Browser capture/import time, not camera shutter time.',
-    source: frameSource, config, result, units: {distance:'meters', corners:'pixels'},
+    source: frameSource, config: exportConfig, result, units: {distance:'meters', corners:'pixels'},
     smoothing: originalFile ? 'Independent image; distance equals raw distance.' : 'Exponential temporal smoothing; raw distance also included.',
     analysis_fps: originalFile ? null : fps, orientation: 'Browser-decoded orientation; no resizing or cropping.'
   }};
-  saveFrame.disabled = false;
+  saveFrame.disabled = exporting;
   const previous = $('selected').value;
   const ids = [...new Set(result.tags.map(t => t.id))];
   $('selected').replaceChildren(...(ids.length ? ids.map(id => new Option(`Tag ${id}`, String(id))) : [new Option('No tags detected', '')]));
@@ -154,6 +161,7 @@ async function sendFrame(token: number): Promise<void> {
 }
 async function start() {
   if (!config || running) return;
+  clearMetrics();
   const token = ++generation; running = true; imageUpload.disabled = true;
   $('start').disabled = true; $('stop').disabled = false; $('camera').disabled = true;
   resolutionControl.disable(true);
@@ -213,7 +221,8 @@ async function init() {
     const response = await fetch('/api/config');
     if (!response.ok) throw new Error(`Server returned ${response.status}`);
     const loaded: AppConfig = await response.json();
-    config = loaded;
+    config = loaded; imageUpload.disabled = false;
+    logging.initialize(config.log_token).catch(e => { $('loggingStatus').textContent = `Spreadsheet logging unavailable: ${errorMessage(e)}`; });
     $('family').textContent = config.tag.dictionary.replace('DICT_APRILTAG_', '');
     $('size').textContent = `${config.tag.tag_size_m.toFixed(3)} m`;
     if (config.calibrated && config.calibration_width && config.calibration_height) resolutionControl.addCalibration(config.calibration_width, config.calibration_height);
@@ -241,14 +250,19 @@ imageUpload.onchange = async () => {
   finally{if(token===generation){imageUpload.disabled=false;$('start').disabled=!config;}imageUpload.value='';}
 };
 saveFrame.onclick = async () => {
-  if(!logFrame)return;
-  // Snapshot both visuals and metadata synchronously before the live loop advances.
-  const log=logFrame, annotated=copyCanvas(display), selected=$('selected').value;
-  saveFrame.disabled=true;
+  if(!logFrame || exporting)return;
+  // Capture the displayed frame, selected tag, ground truth and trial statistics together.
+  exporting=true; saveFrame.disabled=true;
   try{
+    const log=logFrame, annotated=copyCanvas(display);
+    const archive=`apriltag-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`;
+    const target=logging.targetForFrameDownload();
+    const record=logging.buildRecord(archive);
+    if(target && !record.row) throw new Error('No valid selected-tag distance to log. Turn off spreadsheet logging to download this frame alone.');
     const files=[{name:'annotated.png',blob:await png(annotated)}, {name:'frame.png',blob:await png(log.raw)},
-      {name:'metadata.json',blob:new Blob([JSON.stringify({...log.metadata,selected_tag_id:selected?Number(selected):null,exported_at_utc:new Date().toISOString()},null,2)],{type:'application/json'})}];
+      {name:'metadata.json',blob:new Blob([JSON.stringify(record.metadata,null,2)],{type:'application/json'})}];
     if(log.original)files.push({name:'source/'+log.original.name.replace(/[^a-zA-Z0-9._-]/g,'_'),blob:log.original});
-    await downloadArchive(files,`apriltag-${new Date().toISOString().replace(/[:.]/g,'-')}.zip`);
-  }catch(e){status(captureError(e),'error');}finally{saveFrame.disabled=!logFrame;}
+    await downloadArchive(files,archive);
+    if(target) await logging.append(record,target);
+  }catch(e){status(captureError(e),'error');}finally{exporting=false;saveFrame.disabled=!logFrame;}
 };

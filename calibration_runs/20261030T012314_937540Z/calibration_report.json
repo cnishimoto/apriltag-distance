@@ -1,0 +1,275 @@
+{
+  "K": [
+    [
+      2814.762341645025,
+      0.0,
+      1922.7873585344757
+    ],
+    [
+      0.0,
+      2845.007136944926,
+      1095.0928711151626
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "dist": [
+    -0.15965316449493838,
+    2.212059668738542,
+    0.0018564823878383352,
+    0.002317306376784863,
+    -8.759041011560214
+  ],
+  "rms_px": 0.44596635733795276,
+  "per_view_rms_px": [
+    0.2972300946712494,
+    0.3397619128227234,
+    0.30632948875427246,
+    0.38602009415626526,
+    0.6141674518585205,
+    0.47123056650161743,
+    0.5147565007209778,
+    0.4533079266548157,
+    0.37965285778045654,
+    0.6605532169342041,
+    0.7767398953437805,
+    0.7251076698303223,
+    0.5298914313316345,
+    0.22457407414913177,
+    0.44200167059898376,
+    0.8393216729164124,
+    0.18467657268047333,
+    0.18698208034038544,
+    0.2157513052225113,
+    0.21922507882118225,
+    0.2281332015991211,
+    0.252175509929657,
+    0.3316853642463684,
+    0.39797309041023254,
+    0.25713980197906494,
+    0.31654998660087585
+  ],
+  "image_width": 3840,
+  "image_height": 2160,
+  "internal_corners": [
+    9,
+    6
+  ],
+  "square_size_mm": 20,
+  "views": 26,
+  "sources": [
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:19:44.226835+00:00",
+      "sha256": "0d79e0ed9a0346b8d3ea42154e3c249c82489ec50867325ecc2304af607aa715",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_01.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:19:50.330846+00:00",
+      "sha256": "105d9762d9c0fed681ae24219df04a888495ebad7347b91f12e9cf71b23a1141",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_02.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:19:54.857715+00:00",
+      "sha256": "9ac6763053018abca19de478d22abb195588673c780ab9c437a243e38db6daa6",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_03.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:19:59.174780+00:00",
+      "sha256": "0e2c11e0f4552fc92fc6d26e84ff65b334142b829ab0128c4addc02f81494cbd",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_04.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:09.321638+00:00",
+      "sha256": "26eab87646e95450c87275260a02a04154dac93f5ca20cca02921634caa3140b",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_05.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:16.655757+00:00",
+      "sha256": "f65da2573ae39de95623577ee08cdba4c5051a532d397743a567a017ae1c23a9",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_06.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:22.969951+00:00",
+      "sha256": "d4599f0b6625494c7b97f2e4aa889fcda5602eda29a22d06e6f882e940144be3",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_07.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:28.722707+00:00",
+      "sha256": "9115cb03fb89b6636568ac0d404be5120e3919925477bc1dbb405de1f03bfdbd",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_08.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:45.202744+00:00",
+      "sha256": "cc2174824a9ab89d4f282233da7f2ecfeb8b59a6cb5e2ddb8d030de689dbc848",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_09.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:20:52.472451+00:00",
+      "sha256": "d5aff3f606a4192aef20a92d0757c8d45cce86c66a56a09a6af98facdc638f74",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_10.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:04.889191+00:00",
+      "sha256": "a08c75fc1a9115a3f34477560aef0036311661aedcbcc87fe3b982af545595ef",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_11.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:13.473414+00:00",
+      "sha256": "e6da5a5fba00db21b14b8d7a42af9fbcaa08acdfd18f51b20cbe0e9094bb37cc",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_12.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:19.576908+00:00",
+      "sha256": "800779d693171af6bccd942e0b2fee727bffd6c8c64d5c7426dfee1788634a63",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_13.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:26.641510+00:00",
+      "sha256": "3a862be59d6f1dabadd37bc3e86aa013d37a569a904257872409614a5d588973",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_14.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:33.025052+00:00",
+      "sha256": "37614d9461c3e9137407cb859eb56e356aa7a180daa5a87f41ac607c4871daaf",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_15.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:42.029957+00:00",
+      "sha256": "5f3e9460dfde649a3b615104a9b28e1a955693f5972a7bdc48309dae815cd59c",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_16.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:50.289606+00:00",
+      "sha256": "6030df9b24c89c7514944cdbb16027668b3118b3295a588771e67667127543fd",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_17.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:21:57.736600+00:00",
+      "sha256": "09afe56c702a946369cef5c604668921617a290f4cddaf690bcf5ca7da6e34c8",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_18.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:06.991049+00:00",
+      "sha256": "e08ece034f4233a57e363534cc71fb7de8bb0d48c1a4b3a10ad4aa8527b68448",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_19.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:15.535559+00:00",
+      "sha256": "416da5397b9c1bc08a65905da1774fcbd5fb661e699cc749686acd5eac9b1b00",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_20.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:22.665547+00:00",
+      "sha256": "712b760bce2a1be47402484f34eeb724f8df0ae798b8f0c47967931d6ef968e1",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_21.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:25.919202+00:00",
+      "sha256": "cc22652ec7464a7a39baf9bd53243f4efbf736f209c9100e5a7a113d5372d891",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_22.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:36.543101+00:00",
+      "sha256": "d77c4f17f8aba3e48824fc4259c47db6d9427b9e2856dea90e52c6366a9c6c6b",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_23.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:22:44.005535+00:00",
+      "sha256": "2c1ba37f79070dfb371e1f84bb0dbe1cc2eeabda816dd0f896d20cbdb39c85c0",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_24.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:23:07.279604+00:00",
+      "sha256": "448c0f77109c1ef6727e5c673345f26cc7df29c2b36d0caf09320f988be11c90",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_25.png"
+    },
+    {
+      "kind": "camera",
+      "accepted_at_utc": "2026-10-30T01:23:11.558216+00:00",
+      "sha256": "3d1988e3f4fea3d7f742ae82115a6b2941ece90adf31893fd2509585fe3fe4fa",
+      "width": 3840,
+      "height": 2160,
+      "image_file": "view_26.png"
+    }
+  ],
+  "opencv_version": "4.14.0",
+  "coordinate_units": "meters"
+}

@@ -2,3 +2,18 @@
 
 #importResults { white-space: pre-line; overflow-wrap: anywhere; }
 #imageUpload { display: block; margin: 12px 0; max-width: 100%; }
+
+.measurement-log { margin-top:24px; }
+.logging-grid { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr); gap:18px; align-items:end; }
+.logging-grid input:not([type=checkbox]), .logging-grid select { width:100%; max-width:none; min-width:0; box-sizing:border-box; }
+.trial-strip { display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:16px; padding:16px; margin:16px 0 8px; background:#f5f7fb; border-radius:10px; font-variant-numeric:tabular-nums; }
+.logging-options { border-top:1px solid #e1e6ef; margin-top:20px; padding-top:16px; }
+.logging-options summary { cursor:pointer; font-weight:650; padding:4px 0 16px; }
+.checkbox-label { display:flex; align-items:center; gap:10px; margin:18px 0; }
+.checkbox-label input { width:18px; height:18px; margin:0; }
+.import-log-field { grid-column:1/-1; }
+.field-error, #loggingStatus[data-tone=error] { color:#b42318; }
+.field-error:empty { display:none; }
+#logFolder, #loggingStatus { overflow-wrap:anywhere; }
+.text-link { color:#4f46e5; font-weight:600; }
+@media(max-width:680px) { .logging-grid { grid-template-columns:1fr; } }

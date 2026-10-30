@@ -1,0 +1,18 @@
+{
+  "camera": {
+    "id": 0,
+    "width": 1280,
+    "height": 720,
+    "buffer_size": 1,
+    "calibration_width": null,
+    "calibration_height": null,
+    "K": null,
+    "dist": null
+  },
+  "apriltag": {
+    "dictionary": "DICT_APRILTAG_36h11",
+    "tag_size_m": 0.15,
+    "corner_refinement": "CORNER_REFINE_SUBPIX",
+    "smoothing_alpha": 0.35
+  }
+}

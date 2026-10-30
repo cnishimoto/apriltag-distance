@@ -1,5 +1,6 @@
 /** JSON contract exposed by the local Python server. Distances are meters. */
 export interface AppConfig {
+  log_token: string;
   width: number;
   height: number;
   calibrated: boolean;
