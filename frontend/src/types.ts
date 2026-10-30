@@ -3,6 +3,7 @@ export interface AppConfig {
   width: number;
   height: number;
   calibrated: boolean;
+  calibration: { K: number[][] | null; dist: number[] | null };
   calibration_width: number | null;
   calibration_height: number | null;
   tag: {

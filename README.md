@@ -104,3 +104,14 @@ References:
 The uv migration was verified with a fresh project environment, locked sync, and all six backend tests.
 
 Frontend resolution tests: run `npm test` in `frontend`. Four tests cover Auto, exact manual requests, invalid dimensions, and actionable unsupported-mode errors. Ten Python tests also pass.
+
+
+## Import images and save measurements
+
+Both pages accept JPEG, PNG and WebP files without starting a camera. Export RAW/HEIF photos to JPEG or PNG first. Images retain their decoded dimensions and orientation; they are not resized. Limit: 100 MB encoded input, 60 MP and 12000 pixels per side. Browser canvas PNG conversion can exceed the size limit for large noisy photos.
+
+For distance, select one image. Each image is processed independently without carrying smoothing across unrelated photos. For calibration, select multiple images; each file gets an accepted/rejected result. Accepted files must share dimensions; reset the capture set before switching image modes or cameras. Save calibration to retain accepted PNGs and a report containing source filenames, file modification times (not shutter times), hashes and calibration results.
+
+In **live distance mode as well as uploaded-image mode**, click **Download frame + metadata**. This downloads one ZIP with `annotated.png`, `frame.png` (the unannotated processing input), and `metadata.json`. The images and measurements refer to the same processed frame even while streaming continues. Metadata includes timestamps, source, dimensions, all tag corners/IDs, raw and smoothed distances, depth, reprojection error, warnings, processing time, detector settings and calibration K/dist. Uploaded-image logs also include the original source file, retaining its original EXIF if present. Browser timestamps are not camera shutter timestamps. Live processing uses JPEG; `frame.png` preserves the browser capture before JPEG compression.
+
+Photo mode and webcam mode generally need separate calibrations, even on the same physical camera. A matching resolution is necessary but does not establish matching optics/crop. Use the matching camera, lens, zoom, focus and image mode. The app deliberately disables distances for resolution mismatches; it does not invent or scale intrinsics. Back up each camera/mode's JSON and use `--config PATH` to select it.

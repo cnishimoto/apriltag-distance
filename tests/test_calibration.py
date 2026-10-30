@@ -68,3 +68,22 @@ def test_auto_resolution_locks_only_accepted_views_and_reset_unlocks():
     session.corners.clear();session.images.clear();session.result=None
     session.capture(board(800,600,45))
     assert session.size==(800,600)
+
+
+def test_import_provenance_and_reset(tmp_path):
+    path=tmp_path/'config.json';path.write_text(json.dumps({'camera':{'width':1280,'height':720}}))
+    board=np.full((480,640,3),255,np.uint8)
+    for row in range(7):
+        for col in range(10):
+            if (row+col)%2==0:board[40+row*40:80+row*40,50+col*40:90+col*40]=0
+    data=cv2.imencode('.png',board)[1].tobytes()
+    session=CalibrationSession(1280,720,auto_resolution=True)
+    session.capture(data,{'kind':'uploaded_image','filename':'DSCF001.jpg'})
+    assert session.sources[0]['filename']=='DSCF001.jpg'
+    assert len(session.sources[0]['sha256'])==64
+    with TestClient(create_app(path,tmp_path/'runs')) as client:
+        headers={'x-calibration-token':client.get('/api/calibration').json()['token']}
+        assert client.post('/api/calibration/capture?source_name=DSCF001.jpg',headers=headers,content=data).json()['count']==1
+        assert client.post('/api/calibration/undo',headers=headers).json()['count']==0
+        assert client.post('/api/calibration/capture',headers=headers,content=data).json()['count']==1
+        assert client.post('/api/calibration/reset',headers=headers).json()['count']==0

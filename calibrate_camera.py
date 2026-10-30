@@ -3,6 +3,7 @@ import argparse
 import asyncio
 from datetime import datetime, timezone
 import json
+import hashlib
 from pathlib import Path
 import secrets
 import shutil
@@ -19,8 +20,8 @@ ROOT = Path(__file__).resolve().parent
 
 class CalibrationSession:
     def __init__(self, width, height, columns=9, rows=6, square_mm=20, auto_resolution=False):
-        if min(width, height) <= 0 or max(width, height) > 4096:
-            raise ValueError('Capture dimensions must be between 1 and 4096.')
+        if min(width, height) <= 0 or max(width, height) > 12000 or width*height > 60_000_000:
+            raise ValueError('Capture dimensions must be within 12000 pixels per side and 60 MP.')
         if min(columns, rows) < 3 or not np.isfinite(square_mm) or square_mm <= 0:
             raise ValueError('Use at least 3x3 internal corners and a positive square size.')
         self.size = (width, height)
@@ -29,19 +30,20 @@ class CalibrationSession:
         self.square_mm = square_mm
         self.corners = []
         self.images = []
+        self.sources = []
         self.result = None
 
-    def capture(self, data):
+    def capture(self, data, source=None):
         if len(self.images) >= 60:
             raise ValueError('60-view limit reached. Calculate or reset the session.')
-        if not data or len(data) > 12_000_000:
-            raise ValueError('Image is empty or exceeds 12 MB.')
+        if not data or len(data) > 100_000_000:
+            raise ValueError('Image is empty or exceeds 100 MB.')
         frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError('Invalid image.')
         actual_size = (frame.shape[1], frame.shape[0])
-        if max(actual_size) > 4096:
-            raise ValueError('Frame dimensions exceed 4096 pixels.')
+        if max(actual_size) > 12000 or actual_size[0]*actual_size[1] > 60_000_000:
+            raise ValueError('Image exceeds 12000 pixels per side or 60 MP.')
         if (self.corners or not self.auto_resolution) and actual_size != self.size:
             raise ValueError(f'Capture must be exactly {self.size[0]}x{self.size[1]}. Resolution changed; reset captures before using the new mode.')
         found, corners = cv2.findChessboardCornersSB(cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY), self.pattern)
@@ -52,6 +54,10 @@ class CalibrationSession:
         self.size = actual_size
         self.corners.append(corners.astype(np.float32))
         self.images.append(data)
+        self.sources.append({**(source or {'kind':'camera'}),
+            'accepted_at_utc':datetime.now(timezone.utc).isoformat(),
+            'sha256':hashlib.sha256(data).hexdigest(), 'width':actual_size[0], 'height':actual_size[1],
+            'image_file':f'view_{len(self.images):02d}.png'})
         self.result = None
         return {'count': len(self.corners), 'corners': corners.reshape(-1,2).tolist()}
 
@@ -72,7 +78,8 @@ class CalibrationSession:
         self.result = {'K':K.tolist(), 'dist':dist.reshape(-1).tolist(), 'rms_px':float(rms),
                        'per_view_rms_px':per_view, 'image_width':self.size[0], 'image_height':self.size[1],
                        'internal_corners':list(self.pattern), 'square_size_mm':self.square_mm,
-                       'views':len(self.corners)}
+                       'views':len(self.corners), 'sources':list(self.sources),
+                       'opencv_version':cv2.__version__, 'coordinate_units':'meters'}
         return self.result
 
 
@@ -122,16 +129,25 @@ def create_app(config_path, output_root, columns=9, rows=6, square_mm=20):
         async with lock:
             try:
                 if action == 'capture':
-                    return await asyncio.to_thread(session.capture, await request.body())
+                    data = bytearray()
+                    async for chunk in request.stream():
+                        data.extend(chunk)
+                        if len(data)>100_000_000:
+                            raise HTTPException(413, 'Image exceeds 100 MB.')
+                    name = request.query_params.get('source_name')
+                    source = {'kind':'uploaded_image', 'filename':name,
+                              'last_modified_utc':request.query_params.get('source_modified'),
+                              'note':'Browser decoded to PNG without resizing; EXIF is not retained.'} if name else {'kind':'camera'}
+                    return await asyncio.to_thread(session.capture, bytes(data), source)
                 if action == 'calculate':
                     return await asyncio.to_thread(session.solve)
                 if action == 'undo':
                     if session.corners:
-                        session.corners.pop(); session.images.pop()
+                        session.corners.pop(); session.images.pop(); session.sources.pop()
                     session.result = None
                     return {'count':len(session.corners)}
                 if action == 'reset':
-                    session.corners.clear(); session.images.clear(); session.result = None
+                    session.corners.clear(); session.images.clear(); session.sources.clear(); session.result = None
                     return {'count':0}
                 if action == 'save':
                     return await asyncio.to_thread(save_result, session, config_path, output_root)

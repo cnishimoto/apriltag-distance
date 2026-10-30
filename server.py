@@ -1,37 +1,25 @@
 """Local webcam processing service. Run: python server.py"""
 import argparse
 import asyncio
-import csv
-import math
-from datetime import datetime, timezone
 import json
 from pathlib import Path
 import time
-import uuid
-import secrets
-from calibrate_camera import CalibrationSession, save_result
 
 import cv2
 import numpy as np
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, Request, HTTPException
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
 from calibration import validate_calibration
-from apriltag_position import estimate_position
 
 ROOT = Path(__file__).resolve().parent
-DATA_PATH = ROOT / 'measurements' / 'position_errors.csv'
-PICTURES_DIR = ROOT / 'pictures'
-MEASUREMENT_COLUMNS = ['timestamp_utc', 'image_name', 'source', 'tag_id', 'image_width', 'image_height', 'tag_size_m', 'reference_type', 'true_distance_m', 'estimated_distance_m', 'signed_error_m', 'absolute_error_m', 'relative_error_percent', 'x_m', 'y_m', 'z_m', 'estimated_range_m', 'estimated_depth_m', 'reprojection_rms_px', 'camera_profile']
-
 
 
 def load_config(path):
     config = json.loads(Path(path).read_text(encoding='utf-8'))
     camera, tag = config['camera'], config['apriltag']
     for key in ('width', 'height'):
-        if type(camera[key]) is not int or not 1 <= camera[key] <= 4096:
-            raise ValueError(f'camera.{key} must be an integer from 1 to 4096')
+        if type(camera[key]) is not int or not 1 <= camera[key] <= 12000:
+            raise ValueError(f'camera.{key} must be an integer from 1 to 12000')
     size, alpha = float(tag['tag_size_m']), float(tag['smoothing_alpha'])
     if not np.isfinite(size) or size <= 0 or not 0 < alpha <= 1:
         raise ValueError('Tag size must be positive; smoothing alpha must be in (0, 1].')
@@ -61,16 +49,16 @@ class Processor:
         self.dist = np.array(self.camera['dist'], dtype=np.float64) if self.calibrated else None
         self.filtered = {}
 
-    def process(self, data):
+    def process(self, data, photo=False):
         start = time.perf_counter()
-        if len(data) > 8_000_000:
-            raise ValueError('Frame exceeds 8 MB limit.')
+        if not data or len(data) > (100_000_000 if photo else 8_000_000):
+            raise ValueError('Image is empty or exceeds the input size limit.')
         frame = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
         if frame is None:
             raise ValueError('Frame is not a valid encoded image.')
         height, width = frame.shape[:2]
-        if max(width, height) > 4096:
-            raise ValueError('Frame dimensions exceed 4096 pixels.')
+        if max(width, height) > (12000 if photo else 4096) or width*height > 60_000_000:
+            raise ValueError('Image exceeds the supported dimensions (live: 4096; photos: 12000 pixels / 60 MP).')
         can_measure = self.calibrated and (width, height) == (self.camera['calibration_width'], self.camera['calibration_height'])
         warning = None
         if not self.calibrated:
@@ -117,161 +105,20 @@ def create_app(config_path=ROOT / 'apriltag_config.json'):
         c, t = config['camera'], config['apriltag']
         return dict(width=c['width'], height=c['height'], tag=t,
                     calibrated=c['K'] is not None and c['dist'] is not None,
-                    calibration_width=c['calibration_width'], calibration_height=c['calibration_height'])
+                    calibration_width=c['calibration_width'], calibration_height=c['calibration_height'], calibration={'K':c['K'], 'dist':c['dist']})
 
-    # All four pages are served from the same app / port.
-    @app.get('/')
-    async def home_page():
-        return FileResponse(ROOT / 'frontend' / 'index.html')
-
-    @app.get('/capture')
-    async def capture_page():
-        return FileResponse(ROOT / 'frontend' / 'capture.html')
-
-    @app.get('/calibration')
-    async def calibration_page():
-        return FileResponse(ROOT / 'frontend' / 'calibration.html')
-
-    calibration_session = CalibrationSession(config['camera']['width'], config['camera']['height'],
-                                             9, 6, 20, auto_resolution=True)
-    calibration_token = secrets.token_urlsafe(32)
-    calibration_lock = asyncio.Lock()
-
-    @app.get('/api/calibration')
-    async def calibration_settings():
-        return dict(width=calibration_session.size[0], height=calibration_session.size[1],
-                    columns=9, rows=6, square_mm=20, token=calibration_token,
-                    count=len(calibration_session.corners))
-
-    @app.post('/api/calibration/{action}')
-    async def calibration_action(action: str, request: Request):
-        if request.headers.get('x-calibration-token') != calibration_token:
-            raise HTTPException(403, 'Invalid calibration session token')
-        async with calibration_lock:
-            try:
-                if action == 'capture':
-                    return await asyncio.to_thread(calibration_session.capture, await request.body())
-                if action == 'calculate':
-                    return await asyncio.to_thread(calibration_session.solve)
-                if action == 'undo':
-                    if calibration_session.corners:
-                        calibration_session.corners.pop()
-                        calibration_session.images.pop()
-                    calibration_session.result = None
-                    return {'count': len(calibration_session.corners)}
-                if action == 'reset':
-                    calibration_session.corners.clear()
-                    calibration_session.images.clear()
-                    calibration_session.result = None
-                    return {'count': 0}
-                if action == 'save':
-                    return await asyncio.to_thread(save_result, calibration_session,
-                                                   Path(config_path), ROOT / 'calibration_runs')
-                raise HTTPException(404, 'Unknown calibration operation')
-            except (ValueError, cv2.error) as exc:
-                raise HTTPException(400, str(exc)) from exc
-
-    @app.get('/image')
-    async def image_page():
-        return FileResponse(ROOT / 'frontend' / 'image_position.html')
-
-    async def run_image_estimate(request: Request, tag_id: int | None):
-        # Alternate camera calibrations come from the selected local JSON file.
-        raw_config = request.headers.get('x-camera-config')
-        if raw_config and len(raw_config) > 12000:
-            raise HTTPException(413, 'Calibration config is too large.')
+    @app.post('/api/image')
+    async def image(request: Request):
+        data = bytearray()
+        async for chunk in request.stream():
+            data.extend(chunk)
+            if len(data) > 100_000_000:
+                raise HTTPException(413, 'Image exceeds 100 MB.')
         try:
-            profile = json.loads(raw_config) if raw_config else load_config(config_path)
-            raw = await request.body()
-            if not raw or len(raw) > 16_000_000:
-                raise ValueError('Image must be 1–16 MB.')
-            frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-            if frame is None:
-                raise ValueError('Invalid image; import PNG or JPEG.')
-            if max(frame.shape[:2]) > 8192:
-                raise ValueError('Image dimension exceeds 8192 pixels.')
-            result = await asyncio.to_thread(estimate_position, frame, profile, tag_id)
-            return profile, result
-        except (ValueError, TypeError, KeyError, cv2.error) as exc:
+            # Independent stills must never inherit temporal smoothing history.
+            return await asyncio.to_thread(Processor(config).process, bytes(data), True)
+        except (ValueError, cv2.error) as exc:
             raise HTTPException(400, str(exc)) from exc
-
-    @app.post('/api/image-position/capture')
-    async def capture_image(request: Request):
-        """Persist one browser webcam frame to the server's local pictures/ folder."""
-        raw = await request.body()
-        if not raw or len(raw) > 16_000_000:
-            raise HTTPException(400, 'Captured frame must be 1–16 MB.')
-        frame = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
-        if frame is None or max(frame.shape[:2]) > 8192:
-            raise HTTPException(400, 'Invalid or oversized captured frame.')
-        # Re-encode as PNG, rather than trusting arbitrary user-supplied bytes.
-        ok, encoded = cv2.imencode('.png', frame)
-        if not ok:
-            raise HTTPException(500, 'Unable to encode captured frame.')
-        name = (datetime.now(timezone.utc).strftime('image_%Y%m%d_%H%M%S_%f_')
-                + uuid.uuid4().hex[:8] + '.png')
-        PICTURES_DIR.mkdir(parents=True, exist_ok=True)
-        path = PICTURES_DIR / name
-        await asyncio.to_thread(path.write_bytes, encoded.tobytes())
-        return {'saved': True, 'image_name': name, 'path': 'pictures/' + name,
-                'width': frame.shape[1], 'height': frame.shape[0]}
-
-    @app.post('/api/image-position')
-    async def image_position(request: Request, tag_id: int | None = None):
-        _, result = await run_image_estimate(request, tag_id)
-        return result
-
-    save_lock = asyncio.Lock()
-
-    @app.post('/api/image-position/save')
-    async def save_measurement(request: Request, true_distance_m: float,
-                               reference_type: str = 'range', source: str = 'real',
-                               image_name: str = 'captured_image.png',
-                               tag_id: int | None = None):
-        if not math.isfinite(true_distance_m) or true_distance_m <= 0:
-            raise HTTPException(400, 'Measured ground-truth distance must be a positive finite number in meters.')
-        if reference_type not in ('range', 'depth'):
-            raise HTTPException(400, 'Reference type must be range or depth.')
-        if source not in ('real', 'simulated'):
-            raise HTTPException(400, 'Source must be real or simulated.')
-        # Do not allow control characters / spreadsheet formula injection in exported CSV.
-        image_name = Path(image_name.replace('\\', '/')).name[:180]
-        if image_name.startswith(('=', '+', '-', '@', '\t', '\r', '\n')):
-            image_name = '_' + image_name
-        if not image_name or any(ord(c) < 32 for c in image_name):
-            raise HTTPException(400, 'Invalid image filename.')
-        profile, result = await run_image_estimate(request, tag_id)
-        estimate = result['distance_m'] if reference_type == 'range' else result['z_m']
-        error = estimate - true_distance_m
-        record = dict(timestamp_utc=datetime.now(timezone.utc).isoformat(timespec='milliseconds'),
-                      image_name=image_name, source=source, tag_id=result['id'],
-                      image_width=result['image_width'], image_height=result['image_height'],
-                      tag_size_m=profile['apriltag']['tag_size_m'],
-                      reference_type=reference_type, true_distance_m=true_distance_m,
-                      estimated_distance_m=estimate, signed_error_m=error,
-                      absolute_error_m=abs(error), relative_error_percent=100*error/true_distance_m,
-                      x_m=result['x_m'], y_m=result['y_m'], z_m=result['z_m'],
-                      estimated_range_m=result['distance_m'], estimated_depth_m=result['z_m'],
-                      reprojection_rms_px=result['reprojection_rms_px'],
-                      camera_profile='uploaded' if request.headers.get('x-camera-config') else 'default')
-        async with save_lock:
-            DATA_PATH.parent.mkdir(parents=True, exist_ok=True)
-            if DATA_PATH.exists():
-                with DATA_PATH.open('r', newline='', encoding='utf-8') as file:
-                    if next(csv.reader(file), []) != MEASUREMENT_COLUMNS:
-                        raise HTTPException(409, 'CSV column layout differs from expected format; rename or move the existing file before saving.')
-            with DATA_PATH.open('a', newline='', encoding='utf-8') as file:
-                writer = csv.DictWriter(file, fieldnames=MEASUREMENT_COLUMNS)
-                if file.tell() == 0:
-                    writer.writeheader()
-                writer.writerow(record)
-        return {'saved': True, 'csv': 'measurements/position_errors.csv', 'measurement': record}
-
-    @app.get('/api/image-position/measurements.csv')
-    async def download_measurements():
-        if not DATA_PATH.exists():
-            raise HTTPException(404, 'No measurements saved yet.')
-        return FileResponse(DATA_PATH, media_type='text/csv', filename='position_errors.csv')
 
     @app.websocket('/ws')
     async def frames(ws: WebSocket):

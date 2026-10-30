@@ -68,3 +68,26 @@ def test_config_validation(tmp_path):
     c = configuration(); c['apriltag']['tag_size_m'] = -1
     path = tmp_path/'bad.json'; path.write_text(json.dumps(c))
     with pytest.raises(ValueError): load_config(path)
+
+
+def test_uploaded_images_are_independent_and_expose_calibration(tmp_path):
+    path=tmp_path/'config.json';path.write_text(json.dumps(configuration()))
+    with TestClient(create_app(path)) as client:
+        assert client.get('/api/config').json()['calibration']['K']==configuration()['camera']['K']
+        assert client.post('/api/image',content=b'broken').status_code==400
+        for size in [160,100]:
+            frame=np.full((480,640),255,np.uint8)
+            dictionary=cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_APRILTAG_36h11)
+            frame[100:100+size,200:200+size]=cv2.aruco.generateImageMarker(dictionary,7,size)
+            result=client.post('/api/image',content=cv2.imencode('.png',frame)[1].tobytes()).json()
+            tag=result['tags'][0]
+            assert tag['distance_m']==tag['raw_distance_m']
+            assert tag['distance_m']==pytest.approx(800*.16/size,rel=.03)
+        result=client.post('/api/image',content=image(width=800)).json()
+        assert result['tags'][0]['distance_m'] is None
+
+
+def test_photo_dimensions_do_not_relax_live_limit():
+    data=cv2.imencode('.png',np.full((500,5000),255,np.uint8))[1].tobytes()
+    with pytest.raises(ValueError,match='dimensions'):Processor(configuration()).process(data)
+    assert Processor(configuration()).process(data,photo=True)['width']==5000
